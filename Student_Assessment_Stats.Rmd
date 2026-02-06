@@ -17,7 +17,7 @@ library(multcompView)
 
 ###Read in CSV file
 ```{r}
-file_loc = "C:/Users/zkile/Documents/School/Biochem1/Tests_Analytics/"
+file_loc = "folder_location"
 file = "Grades_combined_sevenyears.csv"
 
 csv_in = read.csv(file=paste(file_loc, file, sep=""))  #actually read in the csv now
@@ -160,5 +160,6 @@ ggplot(data=median_scores_df, aes(x=Year, y=Final_Score)) +
 
 #save graph
 ggsave(paste(file_loc,Sys.Date(),"_StudentScoreLinReg_Median.png", sep=""), height=5, width=6, dpi=300) 
+
 
 ```
