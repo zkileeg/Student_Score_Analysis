@@ -1,0 +1,164 @@
+---
+title: "Analytics_StudentPerformance"
+output: html_document
+date: "2026-02-03"
+---
+
+###Load necessary packages
+
+```{r}
+
+library(tidyr)
+library(ggplot2)
+library(ggbeeswarm)
+library(multcompView)
+
+```
+
+###Read in CSV file
+```{r}
+file_loc = "C:/Users/zkile/Documents/School/Biochem1/Tests_Analytics/"
+file = "Grades_combined_sevenyears.csv"
+
+csv_in = read.csv(file=paste(file_loc, file, sep=""))  #actually read in the csv now
+
+```
+
+
+#Filter and prepare data
+```{r}
+
+#fix column names to not be terrible
+
+colnames(csv_in) = c("Student", "Year", "Final_Score")
+
+#remove rows with a score of 0
+csv_filtered = csv_in %>% filter(Final_Score > 0)
+#convert the final year to a factor. We need it as a factor for stats and plotting
+csv_filtered$Year = as.factor(csv_filtered$Year)
+
+```
+
+
+###Perform stats. Anova followed by tukey should work here. We don't care about different sample sizes because R will automatically handle it by converting the tukeyHSD into a tukey-kramer test
+```{r}
+
+#perform an anova test to see if there are any differences among the groups then summarize it
+anova_stat = aov(Final_Score ~ Year, data=csv_filtered)
+summary(anova_stat)
+
+
+#Run the tukey test
+tukey_stat = TukeyHSD(anova_stat)
+
+
+#we're going to plot the significance letters instead of stars/bars. I think it looks a little cleaner. First get the comparisons
+letter_df = multcompLetters4(anova_stat,tukey_stat)
+
+#Group and summarize the values and arrange them in a way we can use them. The values are in csv_filtered, x=year, y=Final_Score 
+#which is being used for values of mean and standard deviation
+dt = group_by(csv_filtered,Year) %>% 
+  summarise(w=mean(Final_Score), sd=sd(Final_Score)) %>%
+  arrange(desc(w))
+
+letter_df = as.data.frame.list(letter_df$Year)  #convert to data frame
+dt$Letters = letter_df$Letters    #add the letter order to our original dt
+
+dt$Y_Pos = max(csv_filtered$Final_Score) #get the max score out of all the input. We need it to know where to add the letters for plots
+
+
+```
+
+
+##linear regression of test scores. It's not incredibly helpful because there are only 7 years and only test scores, but that's ok. Not enough data to really do anything else
+###NOTE:::this is setup now to run for median scores. IF you want to run the analysis of the original data for the plots, then change data=median_score_df to csv_filtered
+```{r}
+
+#Get the median scores from the final score and year columns. Drop the number column. It's useless to us
+median_scores_df = csv_filtered %>% group_by(Year) %>% summarise(Final_Score=median(Final_Score, .groups='drop'))
+
+#just a regular linear regression
+lin_reg_model = lm(Final_Score ~ as.numeric(Year), data=median_scores_df) #<----change this part if you want to find regression for all points
+summary(lin_reg_model)
+
+#now we get the slope and the intercept out of our model we just made
+slope = coef(lin_reg_model)[[2]]
+intercept = coef(lin_reg_model)[[1]]
+#and we want the r squared and adjusted r squared values, so we extract those too
+r_square_adj = summary(lin_reg_model)$adj.r.squared
+r_square = summary(lin_reg_model)$r.squared
+
+
+```
+
+#plot the data in a boxplot
+```{r}
+
+#Make a boxplot of the data. Add onto it the significance letters we calculated earlier
+ggplot(data=csv_filtered, aes(x=factor(Year), y=Final_Score, fill=factor(Year))) + 
+  geom_boxplot(outlier.shape=NA) +
+  stat_boxplot(geom="errorbar") +
+  geom_beeswarm(alpha=0.5, size=1) +
+  scale_fill_brewer(palette = "Blues") +
+  geom_text(data=dt, aes(label = Letters, x=Year, y=Y_Pos, vjust=-0.5, nudge_y=.1, color="red")) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(x="Year", y="Final Score")
+
+ggsave(paste(file_loc,Sys.Date(),"_StudentBoxPlot.png", sep=""), height=5, width=6, dpi=300) 
+
+
+
+```
+
+###Make a violin plot. Add onto it the significance letters we calculated earlier
+
+```{r}
+
+ggplot(data=csv_filtered, aes(x=factor(Year), y=Final_Score, fill=factor(Year))) + 
+  geom_violin() +
+  stat_boxplot(geom="errorbar") +
+  geom_beeswarm(alpha=0.5, size=1) +
+  scale_fill_brewer(palette = "Blues") +
+  geom_text(data=dt, aes(label = Letters, x=Year, y=Y_Pos, vjust=-0.5, nudge_y=.1, color="red")) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(x="Year", y="Final Score")
+
+ggsave(paste(file_loc,Sys.Date(),"_StudentBViolinPlot.png", sep=""), height=5, width=6, dpi=300) 
+
+```
+
+
+#plot the data as a scatter. This will output 
+
+```{r}
+
+#two ways to do it. The first is geom_smooth, which doesn't extend the line, and the second method where we first get the linear regressiosn model, then plot that using geom_abline
+#ggplot(data=csv_filtered, aes(x=as.numeric(Year), y=Final_Score)) +
+#  geom_point() +
+#  geom_smooth(method="lm", se=FALSE, color="red")
+
+#plot the data, adding a custom abline from the lm we made before
+ggplot(data=csv_filtered, aes(x=Year, y=Final_Score)) +
+  geom_point() +
+  geom_abline(aes(intercept=intercept, slope=slope, color="whatever"), linewidth=1) +
+  scale_colour_manual(name="Equation", values="red", labels=paste("Slope: ",round(slope,1), "\n", "Adj R-Sqr: ", round(r_square_adj,2),sep="")) +
+  labs(color=NULL) + 
+  guides(colour=guide_legend(nrow=2)) +
+  theme_bw()
+#save graph
+ggsave(paste(file_loc,Sys.Date(),"_StudentScoreLinReg.png", sep=""), height=5, width=6, dpi=300) 
+  
+ggplot(data=median_scores_df, aes(x=Year, y=Final_Score)) +
+  geom_point() +
+  geom_abline(aes(intercept=intercept, slope=slope, color="whatever"), linewidth=1) +
+  scale_colour_manual(name="Equation", values="red", labels=paste("Slope: ",round(slope,1), "\n", "Adj R-Sqr: ", round(r_square_adj,2),sep="")) +
+  labs(color=NULL) + 
+  guides(colour=guide_legend(nrow=2)) +
+  theme_bw()
+
+#save graph
+ggsave(paste(file_loc,Sys.Date(),"_StudentScoreLinReg_Median.png", sep=""), height=5, width=6, dpi=300) 
+
+```
